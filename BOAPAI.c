@@ -1,11 +1,20 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
+#include <stdint.h>
 
-void  hexToBin(char valorHex[]) {
-    long int i = 0;
+int hexToBin(char valorHex[]) {
+    long long i = 0;
+    int contador=0;
 
     while (valorHex[i] != '\0') {
+
+        if(isspace((char)valorHex[i])) {
+            i++;
+            continue;
+        }
+
         switch (valorHex[i]) {
             case '0':
                 printf("0000");
@@ -62,11 +71,15 @@ void  hexToBin(char valorHex[]) {
                 printf("1111");
                 break;
             default:
-                printf("\nInvalid hexadecimal digit %c", valorHex[i]);
-                return; // Exit if an invalid character is found
+                printf("\nDigito Invalido : %c", valorHex[i]);
+                return contador; // Exit if an invalid character is found
         }
+        contador += 4;
+        if(contador > 0 && contador % 32 == 0) printf("\n");
+
         i++;
     }
+    return contador;
 }
 
 int main() {
@@ -78,15 +91,26 @@ int main() {
         return 1;
     }
 
-    char linha[200]; char linha2[200];
+    char linha[200]; 
 
-    while(fgets(linha, sizeof(linha), arquivo)) {
+   /* while(fgets(linha, sizeof(linha), arquivo)) {
         printf("%s", linha);
     }
-    printf("\n\n\n\n\n");
+    printf("\n\n\n\n\n");*/
 
-    while(fgets(linha2, sizeof(linha2), arquivo)) {
-        hexToBin(linha2);
+    while(fgets(linha, sizeof(linha), arquivo)) {
+        
+        linha[strcspn(linha, "\n")] = '\0';
+
+        if(linha[0] == '@') {
+            printf("%s\n", linha);
+            continue;
+        }
+        // char *ponteiro = strcat(ponteiro,);
+        // uint32_t valorInt = (uint32_t)strtoul(ponteiro, NULL, 2);
+        // printf("%d", valorInt);
+        hexToBin(linha);
+        printf("\n");
     }
 
     fclose(arquivo);
