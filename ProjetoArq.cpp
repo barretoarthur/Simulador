@@ -712,6 +712,11 @@ int main (int argc, char* argv[]) {
 				
 				break;
             }
+
+            case 0b0000011: {
+
+                
+            }
             default:
                 cout << "0x" << hex << pc << ": codigo desconhecido\n";
                 run = 0; 
