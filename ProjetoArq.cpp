@@ -676,7 +676,7 @@ int main (int argc, char* argv[]) {
                 break;
             }
 
-            case 0b0110111 : { // lui
+            case 0b0110111 : { // lui - load upper imeddiate
                 uint32_t resultado = imm_20;
                 
                 if(rd != 0) {
@@ -713,9 +713,114 @@ int main (int argc, char* argv[]) {
 				break;
             }
 
-            case 0b0000011: {
+            case 0b0000011: { // LOAD - STORE
 
+                int32_t imms = (imm & 0x800) ? (imm | 0xFFFFF000) : imm; // extensao de sinal 
                 
+                if(func3 == 0b000) { // lb - load byte
+                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    int32_t address = val1 + imms;
+                    int8_t byte = mem[address - offset];
+                    int32_t bytes = (byte & 0x800) ? (byte | 0xFFFFFF00) : byte;
+                    
+                    if(rd != 0) {
+                        x[rd] = bytes;
+                    }
+
+                cout << hex << setfill('0');
+                cout << "0x" << setw(8) << pc << ":lb    " << regs[rd] << "," << imms 
+                << "(" << regs[rs1] << ")"
+                << "     " << regs[rd] << "=mem[0x" <<  address
+                << "=0x" << setw(8) << bytes << endl;
+                cout << dec;
+
+                } 
+
+                else if(func3 == 0b100) { // lbu - load byte unsigned
+                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    uint32_t address = val1 + imms;
+                    uint8_t byte = mem[address - offset];
+                    
+                    if(rd != 0) {
+                        x[rd] = byte;
+                    }
+
+                cout << hex << setfill('0');
+                cout << "0x" << setw(8) << pc << ":lbu    " << regs[rd] << "," << imms 
+                << "(" << regs[rs1] << ")"
+                << "     " << regs[rd] << "=mem[0x" <<  address
+                << "=0x" << setw(8) << static_cast<int>(byte) << endl;
+                cout << dec;
+
+                } 
+
+                else if(func3 == 0b001) { // lh - load half
+                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    uint32_t address = val1 + imms;
+    
+                    uint16_t metadinha = (uint16_t)mem[address - offset + 1] << 8 | 
+                    (uint16_t)mem[address - offset];
+                    
+                    int32_t bytes = (metadinha & 0x8000) ? (metadinha | 0xFFFF0000) : metadinha;
+
+                    if(rd != 0) {
+                        x[rd] = bytes;
+                    }
+
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":lh    " << regs[rd] << "," << imms 
+                    << "(" << regs[rs1] << ")"
+                    << "     " << regs[rd] << "=mem[0x" <<  address
+                    << "=0x" << setw(8) << bytes << endl;
+                    cout << dec;
+
+                }
+
+                else if(func3 == 0b101) { // lhu - load half unsigned
+                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    uint32_t address = val1 + imms;
+    
+                    uint16_t metadinha = (uint16_t)mem[address - offset + 1] << 8 | 
+                    (uint16_t)mem[address - offset];
+                    
+                    if(rd != 0) {
+                        x[rd] = metadinha;
+                    }
+
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":lhu    " << regs[rd] << "," << imms 
+                    << "(" << regs[rs1] << ")"
+                    << "     " << regs[rd] << "=mem[0x" <<  address
+                    << "=0x" << setw(8) << static_cast<int>(metadinha) << endl;
+                    cout << dec;
+
+                }
+
+                else if(func3 == 0b010) { // lw - load word
+                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    uint32_t address = val1 + imms;
+    
+                    uint32_t todinha = (uint32_t)mem[address - offset + 1] << 8 | 
+                    (uint32_t)mem[address - offset] | (uint32_t)mem[address - offset + 2] << 16 |(uint32_t)mem[address - offset + 3] << 24;
+                    
+                    if(rd != 0) {
+                        x[rd] = todinha;
+                    }
+
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":lw    " << regs[rd] << "," << imms 
+                    << "(" << regs[rs1] << ")"
+                    << "     " << regs[rd] << "=mem[0x" <<  address
+                    << "=0x" << setw(8) << todinha << endl;
+                    cout << dec;
+
+                }
+
+
+            }
+
+            case 0b1100011 : { // TIPO B
+
             }
             default:
                 cout << "0x" << hex << pc << ": codigo desconhecido\n";
