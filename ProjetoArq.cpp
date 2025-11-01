@@ -226,7 +226,7 @@ int main (int argc, char* argv[]) {
                     << "   " << regs[rd] 
                     << "=(0x" << setw(8) <<  x[rs1] 
                     << "<0x" << setw(8) << x[rs2] 
-                    << ")=u" << dec << x[rd] 
+                    << ")=" << dec << x[rd] 
                     << endl; 
                    
                     cout << dec;
@@ -602,7 +602,7 @@ int main (int argc, char* argv[]) {
                     << "   " << regs[rd] 
                     << "=(0x" << setw(8) << val1
                     << "<0x" << setw(8) << imms
-                    << ")=u" << dec << resultado << endl;
+                    << ")=" << dec << resultado << endl;
                     cout << dec;
                 }
 
@@ -620,7 +620,7 @@ int main (int argc, char* argv[]) {
                     << "   " << regs[rd] 
                     << "=(0x" << setw(8) << val1
                     << "<0x" << setw(8) << imms
-                    << ")=u" << dec << resultado << endl;
+                    << ")=" << dec << resultado << endl;
                     cout << dec;
                 }
 
