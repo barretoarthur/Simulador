@@ -16,7 +16,7 @@ int main (int argc, char* argv[]) {
         cout << "argv[" << i << "] = " << argv[i] << endl;
     }
 
-    ifstream input("../1_empty.hex");
+    ifstream input("../1_load_store.hex");
    // ofstream output(argv[2]);
 
     if(!input.is_open()){
@@ -72,6 +72,8 @@ int main (int argc, char* argv[]) {
                                (uint32_t)mem[index_memoria + 2] << 16 |
                                (uint32_t)mem[index_memoria + 1] << 8  |
                                (uint32_t)mem[index_memoria + 0];
+
+                               
 		const uint8_t opcode = instruction & 0b1111111;
 		const uint8_t func7 = instruction >> 25;
 		const uint16_t imm = instruction >> 20;
@@ -726,7 +728,7 @@ int main (int argc, char* argv[]) {
                 uint32_t jump = valors1 + imms; // pra calcular o endereço do pulo
 
 				cout << hex << setfill('0');
-                cout << "0x" << setw(8) << pc << ":jalr    " << regs[rd] << "," << regs[rs1] << ",0x" << hex << imm
+                cout << "0x" << setw(8) << pc << ":jalr    " << regs[rd] << "," << regs[rs1] << ",0x" << hex << setfill('0') << setw(3) << imm
                 << "    pc=0x" << setw(8) << jump << "," << regs[rd] << "=0x" << setw(8) << (pc + 4) 
                 << endl;
                 cout << dec;
@@ -913,27 +915,127 @@ int main (int argc, char* argv[]) {
             }
 
             case 0b1100011: {
+        
+                int8_t imm1a4 = (rd >> 1) & 0xF;
+                int8_t imm5a10 = func7 & 0x3F;
+                int8_t imm12 = func7 >> 6;
+                int8_t imm11 = rd & 0x1;
+
+                int16_t immediate = (imm12 << 12) | imm11 << 11 | imm5a10 << 5 
+                | imm1a4;
+
+                int16_t imms = (immediate & 0x1000) ? (immediate | 0xFFFFE000) : immediate;
 
                 if(func3 == 0b000) { // beq 
+                    int32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
+
+                    bool condicao = (val1 == val2);
+                    uint32_t enderecoPulo = pc += imms;
+                    
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":beq    " 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
+                    << "     (0x" << setw(8) << val1 << "==0x" 
+                    << setw(8) << val2 << ")=" << dec << condicao
+                    << "->pc=0x" << hex << setw(8) << pc;
+                    cout << dec;
+                    
+                    if(condicao) pc = enderecoPulo - 4;
+
+                }
+                
+
+                else if(func3 == 0b001){ //bne
+                    int32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
+
+                    bool condicao = (val1 != val2);
+                    uint32_t enderecoPulo = pc += imms;
+                    
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":bne    " 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
+                    << "     (0x" << setw(8) << val1 << "!=0x" 
+                    << setw(8) << val2 << ")=" << dec << condicao
+                    << "->pc=0x" << hex << setw(8) << pc;
+                    cout << dec;
+                    
+                    if(condicao) pc = enderecoPulo - 4;
+                }
+
+                else if(func3 == 0b100) { //blt
+                    int32_t val1 = (rs1 == 0) ? 0 : (int32_t)x[rs1];
+                    int32_t val2 = (rs2 == 0) ? 0 : (int32_t)x[rs2];
+
+                    bool condicao = (val1 < val2);
+                    uint32_t enderecoPulo = pc += imms;
+                    
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":blt    " 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
+                    << "     (0x" << setw(8) << val1 << "<0x" 
+                    << setw(8) << val2 << ")=" << dec << condicao
+                    << "->pc=0x" << hex << setw(8) << pc;
+                    cout << dec;
+                    
+                    if(condicao) pc = enderecoPulo - 4;
+                }
+
+                else if(func3 == 0b101){ //bge
+                    int32_t val1 = (rs1 == 0) ? 0 : (int32_t)x[rs1];
+                    int32_t val2 = (rs2 == 0) ? 0 : (int32_t)x[rs2];
+
+                    bool condicao = (val1 >= val2);
+                    uint32_t enderecoPulo = pc += imms;
+                    
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":bge    " 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
+                    << "     (0x" << setw(8) << val1 << ">=0x" 
+                    << setw(8) << val2 << ")=" << dec << condicao
+                    << "->pc=0x" << hex << setw(8) << pc;
+                    cout << dec;
+                    
+                    if(condicao) pc = enderecoPulo - 4;
+                }
+
+                else if(func3 == 0b111){ //bgeu
+                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    uint32_t val2 = (rs2 == 0) ? 0 : x[rs2];
+
+                    bool condicao = (val1 >= val2);
+                    uint32_t enderecoPulo = pc += imms;
+                    
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":bgeu    " 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
+                    << "     (0x" << setw(8) << val1 << ">=0x" 
+                    << setw(8) << val2 << ")=" << dec << condicao
+                    << "->pc=0x" << hex << setw(8) << pc;
+                    cout << dec;
+                    
+                    if(condicao) pc = enderecoPulo - 4;
                     
                 }
 
-                else if(func3 == 0b001){ //bne
+                else if(func3 == 0b110) { // bltu
+                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                    uint32_t val2 = (rs2 == 0) ? 0 : x[rs2];
 
+                    bool condicao = (val1 < val2);
+                    uint32_t enderecoPulo = pc += imms;
+                    
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":blt    " 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
+                    << "     (0x" << setw(8) << val1 << "<0x" 
+                    << setw(8) << val2 << ")=" << dec << condicao
+                    << "->pc=0x" << hex << setw(8) << pc;
+                    cout << dec;
+                    
+                    if(condicao) pc = enderecoPulo - 4;
                 }
-
-                else if(func3 == 100) { //blt
-
-                }
-
-                else if(func3 == 101){ //bge
-
-                }
-
-                else if(func3 == 111){ //bgeu
-
-                }
-
                 break;
             }
             default:
