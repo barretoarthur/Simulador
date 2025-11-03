@@ -6,23 +6,28 @@ int main (int argc, char* argv[]) {
     
     cout << "-------------------------------------------------------\n";
 
-    // if(argc < 3) { // pra ver se a quantidade de parametro ta certinha 
+     if(argc < 3) { // pra ver se a quantidade de parametro ta certinha 
+    
+        cerr << "Parametros Incorretos" << endl;
+        return 1;
+     }
 
-    //     cerr << "Parametros Incorretos" << endl;
-    //     return 1;
-    // }
 
-    for(int i =0; i < argc; i++) { // ta certinha
-        cout << "argv[" << i << "] = " << argv[i] << endl;
-    }
-
-    ifstream input("../1_load_store.hex");
-   // ofstream output(argv[2]);
+    ifstream input(argv[1]);
+    ofstream output(argv[2]);
 
     if(!input.is_open()){
-        cerr << "Rapaz os arquivo nao abriu nao" << endl;
+        cerr << "Erro no Arquivo de Entrada" << endl;
         return 1;
     }
+
+    if(!output.is_open()){
+        cerr << "Erro no Arquivo de Saída" << endl;
+        return 1;
+    }
+
+    streambuf *coutbuffer = cout.rdbuf();
+    cout.rdbuf(output.rdbuf());
 
     const uint32_t offset = 0x80000000;
     vector<uint8_t> mem(32 * 1024, 0); // olha a  memoria ai pessoal
@@ -502,7 +507,9 @@ int main (int argc, char* argv[]) {
 				// // ebreak (funct3 == 000 and imm == 1)
 				if(func3 == 0b000 && imm == 1) {
                     // Outputting instruction to console
-					printf("0x%08x:ebreak\n", pc);
+					cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ": ebreak" << endl;
+                    cout << dec;
 					// Retrieving previous and next instructions
 					uint32_t prev_index = (pc - 4) - offset;
 
@@ -931,7 +938,7 @@ int main (int argc, char* argv[]) {
                     int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
 
                     bool condicao = (val1 == val2);
-                    uint32_t enderecoPulo = pc += imms;
+                    uint32_t enderecoPulo = pc + imms;
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":beq    " 
@@ -951,7 +958,7 @@ int main (int argc, char* argv[]) {
                     int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
 
                     bool condicao = (val1 != val2);
-                    uint32_t enderecoPulo = pc += imms;
+                    uint32_t enderecoPulo = pc + imms;
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bne    " 
@@ -969,14 +976,14 @@ int main (int argc, char* argv[]) {
                     int32_t val2 = (rs2 == 0) ? 0 : (int32_t)x[rs2];
 
                     bool condicao = (val1 < val2);
-                    uint32_t enderecoPulo = pc += imms;
+                    uint32_t enderecoPulo = pc + imms;
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":blt    " 
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
                     << "     (0x" << setw(8) << val1 << "<0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc;
+                    << "->pc=0x" << hex << setw(8) << pc << endl;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -987,7 +994,7 @@ int main (int argc, char* argv[]) {
                     int32_t val2 = (rs2 == 0) ? 0 : (int32_t)x[rs2];
 
                     bool condicao = (val1 >= val2);
-                    uint32_t enderecoPulo = pc += imms;
+                    uint32_t enderecoPulo = pc + imms;
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bge    " 
@@ -1005,7 +1012,7 @@ int main (int argc, char* argv[]) {
                     uint32_t val2 = (rs2 == 0) ? 0 : x[rs2];
 
                     bool condicao = (val1 >= val2);
-                    uint32_t enderecoPulo = pc += imms;
+                    uint32_t enderecoPulo = pc + imms;
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bgeu    " 
@@ -1024,10 +1031,10 @@ int main (int argc, char* argv[]) {
                     uint32_t val2 = (rs2 == 0) ? 0 : x[rs2];
 
                     bool condicao = (val1 < val2);
-                    uint32_t enderecoPulo = pc += imms;
+                    uint32_t enderecoPulo = pc + imms;
                     
                     cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":blt    " 
+                    cout << "0x" << setw(8) << pc << ":blti    " 
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << imms 
                     << "     (0x" << setw(8) << val1 << "<0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
@@ -1044,6 +1051,9 @@ int main (int argc, char* argv[]) {
         }
         pc += 4;
     }
+    cout.rdbuf(coutbuffer);
+    input.close();
+    output.close();
 
     return 0;
 }
