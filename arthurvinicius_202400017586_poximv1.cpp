@@ -971,7 +971,7 @@ int main (int argc, char* argv[]) {
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
                     << "     (0x" << setw(8) << val1 << "!=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc;
+                    << "->pc=0x" << hex << setw(8) << pc << endl;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -1007,7 +1007,7 @@ int main (int argc, char* argv[]) {
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
                     << "     (0x" << setw(8) << val1 << ">=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc;
+                    << "->pc=0x" << hex << setw(8) << pc << endl ;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -1025,7 +1025,7 @@ int main (int argc, char* argv[]) {
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
                     << "     (0x" << setw(8) << val1 << ">=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc;
+                    << "->pc=0x" << hex << setw(8) << pc << endl ;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -1044,7 +1044,7 @@ int main (int argc, char* argv[]) {
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
                     << "     (0x" << setw(8) << val1 << "<0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc;
+                    << "->pc=0x" << hex << setw(8) << pc << endl;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
