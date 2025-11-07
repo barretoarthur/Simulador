@@ -929,15 +929,16 @@ int main (int argc, char* argv[]) {
 
             case 0b1100011: { // tipo B
         
-                int8_t imm1a4 = (rd >> 1) & 0xF;
-                int8_t imm5a10 = func7 & 0x3F;
-                int8_t imm12 = func7 >> 6;
-                int8_t imm11 = rd & 0x1;
+                uint32_t imm1a4 = (rd >> 1) & 0xF;
+                uint32_t imm5a10 = func7 & 0x3F;
+                uint32_t imm12 = func7 >> 6;
+                uint32_t imm11 = rd & 0x1;
 
                 uint32_t immediate = imm12 << 12 | imm11 << 11 | imm5a10 << 5
                 | imm1a4 << 1;
 
                 int32_t imms = (immediate & 0x1000) ? (immediate | 0xFFFFE000) : immediate;
+                
 
                 if(func3 == 0b000) { // beq 
                     int32_t val1 = (rs1 == 0) ? 0 : x[rs1];
@@ -948,7 +949,7 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":beq    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << imms 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0xFFF) 
                     << "     (0x" << setw(8) << val1 << "==0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
                     << "->pc=0x" << hex << setw(8) << enderecoPulo << endl;
@@ -968,7 +969,7 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bne    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << imms 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0xFFF)
                     << "     (0x" << setw(8) << val1 << "!=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
                     << "->pc=0x" << hex << setw(8) << enderecoPulo << endl;
@@ -986,7 +987,7 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":blt    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0x1FFF)
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0xFFF)
                     << "     (0x" << setw(8) << val1 << "<0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
                     << "->pc=0x" << hex << setw(8) << pc << endl;
@@ -1004,7 +1005,7 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bge    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0xFFF) 
                     << "     (0x" << setw(8) << val1 << ">=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
                     << "->pc=0x" << hex << setw(8) << enderecoPulo << endl ;
@@ -1022,7 +1023,7 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bgeu    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0xFFF) 
                     << "     (0x" << setw(8) << val1 << ">=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
                     << "->pc=0x" << hex << setw(8) << enderecoPulo << endl ;
@@ -1038,10 +1039,11 @@ int main (int argc, char* argv[]) {
 
                     bool condicao = (val1 < val2);
                     uint32_t enderecoPulo = pc + imms;
+
                     
                     cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":blti    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
+                    cout << "0x" << setw(8) << pc << ":bltu    " 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0xFFF) 
                     << "     (0x" << setw(8) << val1 << "<0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
                     << "->pc=0x" << hex << setw(8) << enderecoPulo << endl;
