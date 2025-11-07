@@ -927,17 +927,17 @@ int main (int argc, char* argv[]) {
 
             }
 
-            case 0b1100011: {
+            case 0b1100011: { // tipo B
         
                 int8_t imm1a4 = (rd >> 1) & 0xF;
                 int8_t imm5a10 = func7 & 0x3F;
                 int8_t imm12 = func7 >> 6;
                 int8_t imm11 = rd & 0x1;
 
-                int16_t immediate = (imm12 << 12) | imm11 << 11 | imm5a10 << 5 
-                | imm1a4;
+                uint32_t immediate = imm12 << 12 | imm11 << 11 | imm5a10 << 5
+                | imm1a4 << 1;
 
-                int16_t imms = (immediate & 0x1000) ? (immediate | 0xFFFFE000) : immediate;
+                int32_t imms = (immediate & 0x1000) ? (immediate | 0xFFFFE000) : immediate;
 
                 if(func3 == 0b000) { // beq 
                     int32_t val1 = (rs1 == 0) ? 0 : x[rs1];
@@ -948,10 +948,10 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":beq    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << imms 
                     << "     (0x" << setw(8) << val1 << "==0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc << endl;
+                    << "->pc=0x" << hex << setw(8) << enderecoPulo << endl;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -968,10 +968,10 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bne    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << imms 
                     << "     (0x" << setw(8) << val1 << "!=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc << endl;
+                    << "->pc=0x" << hex << setw(8) << enderecoPulo << endl;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -986,7 +986,7 @@ int main (int argc, char* argv[]) {
                     
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":blt    " 
-                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
+                    << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setw(3) << (imms & 0x1FFF)
                     << "     (0x" << setw(8) << val1 << "<0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
                     << "->pc=0x" << hex << setw(8) << pc << endl;
@@ -1007,7 +1007,7 @@ int main (int argc, char* argv[]) {
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
                     << "     (0x" << setw(8) << val1 << ">=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc << endl ;
+                    << "->pc=0x" << hex << setw(8) << enderecoPulo << endl ;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -1025,7 +1025,7 @@ int main (int argc, char* argv[]) {
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
                     << "     (0x" << setw(8) << val1 << ">=0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc << endl ;
+                    << "->pc=0x" << hex << setw(8) << enderecoPulo << endl ;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -1044,7 +1044,7 @@ int main (int argc, char* argv[]) {
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << (imms & 0x1FFF) 
                     << "     (0x" << setw(8) << val1 << "<0x" 
                     << setw(8) << val2 << ")=" << dec << condicao
-                    << "->pc=0x" << hex << setw(8) << pc << endl;
+                    << "->pc=0x" << hex << setw(8) << enderecoPulo << endl;
                     cout << dec;
                     
                     if(condicao) pc = enderecoPulo - 4;
@@ -1052,7 +1052,7 @@ int main (int argc, char* argv[]) {
                 break;
             }
             default:
-                cout << "0x" << hex << pc << ": codigo desconhecido\n";
+                cout << "error: unknown instruction opcode at pc = 0x" << hex << setw(8) << pc << endl;
                 run = 0; 
         }
         pc += 4;
