@@ -680,7 +680,7 @@ int main (int argc, char* argv[]) {
                         
                         cout << hex << setfill('0');
                         cout << "0x" << setw(8) << pc << ":slli   " 
-                        << regs[rd] << "," << regs[rs1] << ",0x"<< dec <<  shamt 
+                        << regs[rd] << "," << regs[rs1] << dec <<  shamt 
                         << "   " << regs[rd] 
                         << "=0x" << setw(8) << val1
                         << "<<" << dec << shamt
