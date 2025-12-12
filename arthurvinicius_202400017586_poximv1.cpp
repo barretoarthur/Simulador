@@ -2,6 +2,41 @@
 #include <iomanip>
 using namespace std;
 
+    const uint32_t offset = 0x80000000;
+    uint32_t pc = offset;
+
+    uint32_t csr_mstatus = 0; 
+    uint32_t csr_mie = 0;     
+    uint32_t csr_mtvec = 0;   
+    uint32_t csr_mepc = 0;    
+    uint32_t csr_mcause = 0;  
+    uint32_t csr_mtval = 0;   
+    uint32_t csr_mip = 0;
+
+    #define CSR_ADDR_MSTATUS 0x300
+    #define CSR_ADDR_MIE     0x304
+    #define CSR_ADDR_MTVEC   0x305
+    #define CSR_ADDR_MEPC    0x341
+    #define CSR_ADDR_MCAUSE  0x342
+    #define CSR_ADDR_MTVAL   0x343
+    #define CSR_ADDR_MIP     0x344
+
+    #define CAUSE_FETCH_ACCESS 0x1  
+    #define CAUSE_ILLEGAL_INSTR 0x2  
+    #define CAUSE_LOAD_ACCESS 0x5  
+    #define CAUSE_STORE_ACCESS 0x7
+    #define CAUSE_ECALL 0xb
+
+    void trap(uint32_t cause, uint32_t value) {
+        csr_mcause = cause;
+        csr_mepc = pc;
+        csr_mtval = value;
+
+        uint32_t mie_bit = (csr_mstatus >> 3) & 1;
+        csr_mstatus = (csr_mstatus & ~0x88) | (mie_bit << 7);
+        pc = (csr_mtvec & ~0x3);
+    }
+
 int main (int argc, char* argv[]) {
     
     cout << "-------------------------------------------------------\n";
@@ -28,14 +63,14 @@ int main (int argc, char* argv[]) {
     streambuf *coutbuffer = cout.rdbuf();
     cout.rdbuf(output.rdbuf());
 
-    const uint32_t offset = 0x80000000;
     vector<uint8_t> mem(32 * 1024, 0); // olha a  memoria ai pessoal
+
 
     array<string, 32> regs { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6" };
 
     vector<uint32_t> x(32, 0);
 
-     string linha; 
+    string linha; 
     uint32_t index_memoria = 0;
 
     while (getline(input, linha)) {
@@ -67,8 +102,7 @@ int main (int argc, char* argv[]) {
     }
 
     bool run = true;
-    uint32_t pc = offset;
-
+    
     while(run) {
 
         uint32_t index_memoria = pc - offset;
@@ -516,24 +550,157 @@ int main (int argc, char* argv[]) {
             }
 
             case 0b1110011:{
+
+                uint32_t csr_addr = (instruction >> 20) & 0xFFF;
+
+                uint32_t *csr_ptr = nullptr;
+                switch(csr_addr) {
+                    case CSR_ADDR_MSTATUS: csr_ptr = &csr_mstatus; break;
+                    case CSR_ADDR_MIE:     csr_ptr = &csr_mie;     break;
+                    case CSR_ADDR_MTVEC:   csr_ptr = &csr_mtvec;   break;
+                    case CSR_ADDR_MEPC:    csr_ptr = &csr_mepc;    break;
+                    case CSR_ADDR_MCAUSE:  csr_ptr = &csr_mcause;  break;
+                    case CSR_ADDR_MTVAL:   csr_ptr = &csr_mtval;   break;
+                    case CSR_ADDR_MIP:     csr_ptr = &csr_mip;     break; 
+                }
 				// // ebreak (funct3 == 000 and imm == 1)
-				if(func3 == 0b000 && imm == 1) {
-                    // Outputting instruction to console
-					cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":ebreak" << endl;
-                    cout << dec;
-					// Retrieving previous and next instructions
-					uint32_t prev_index = (pc - 4) - offset;
+				if(func3 == 0b000) {
 
-                    const uint32_t previous = (uint32_t)mem[prev_index + 3] << 24 |(uint32_t)mem[prev_index + 2] << 16 |(uint32_t)mem[prev_index + 1] << 8  | (uint32_t)mem[prev_index + 0];
+                    if(csr_addr == 0x000) { // ecall
+                        cout << hex << setfill('0');
+                        cout << "0x" << setw(8) << pc << ":ecall" << endl;
+                        cout << dec;
+                        trap(CAUSE_ECALL, 0);
+                    }
+                    else if(csr_addr == 0x001) { //ebreak
+ 
+					    cout << hex << setfill('0');
+                        cout << "0x" << setw(8) << pc << ":ebreak" << endl;
+                        cout << dec;
+                        run = false;
+                    }
+
+                    else if(csr_addr == 0x302) { //mret
+                        cout << hex << setfill('0');
+                        cout << "0x" << setw(8) << pc << ":mret" << endl;
+                        cout << dec;
+                        pc = csr_mepc;
+                        }
+                    } 
+                    // bloco de CSRs
+                    else if(csr_ptr != nullptr) {
+                        uint32_t valor_antigo = *csr_ptr;
+                        uint32_t novo = 0;
+                        uint32_t valor_rs1 = x[rs1];
+
+                    string csr_name = "seinao";
+                    switch (csr_addr) {
+                        case CSR_ADDR_MSTATUS: csr_name = "mstatus"; break;
+                        case CSR_ADDR_MIE:     csr_name = "mie";     break;
+                        case CSR_ADDR_MTVEC:   csr_name = "mtvec";   break;
+                        case CSR_ADDR_MEPC:    csr_name = "mepc";    break;
+                        case CSR_ADDR_MCAUSE:  csr_name = "mcause";  break;
+                        case CSR_ADDR_MTVAL:   csr_name = "mtval";   break;
+                        case CSR_ADDR_MIP:     csr_name = "mip";     break;
+                        }   
+
+                        cout << hex << setfill('0');
+
+                        if(func3 == 0b001) { //csrrw
+                            novo = valor_rs1;
+                            *csr_ptr = novo;
+                            if (rd != 0) x[rd] = valor_antigo;
+
+                            cout << "0x" << setw(8) << pc << ":csrrw  " 
+                            << regs[rd] << "," << csr_name << "," << regs[rs1] 
+                            << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
+                            << "," << csr_name << "=" << regs[rs1] << "=0x" << setw(8) << novo 
+                            << endl;
+                        }
+
+                        else if(func3 == 0b010){ //csrrs    
+                            novo = valor_antigo | valor_rs1;
+                            *csr_ptr = novo;
+                            if (rd != 0) x[rd] = valor_antigo;
+
+                            cout << "0x" << setw(8) << pc << ":csrrs  " 
+                            << regs[rd] << "," << csr_name << "," << regs[rs1]
+                            << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
+                            << "," << csr_name << "|=" << regs[rs1] 
+                            << "=0x" << setw(8) << valor_antigo << "|0x" << setw(8) << valor_rs1 
+                            << "=0x" << setw(8) << novo 
+                             << endl;
+                        }
+
+                        else if (func3 == 0b011) { // csrrc
+                        novo = valor_antigo & ~valor_rs1;
+                        *csr_ptr = novo;
+                        if (rd != 0) x[rd] = valor_antigo;
+
+                        cout << "0x" << setw(8) << pc << ":csrrc  " 
+                        << regs[rd] << "," << csr_name << "," << regs[rs1]
+                        << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
+                        << "," << csr_name << "&=" << "~" << regs[rs1] 
+                        << "=0x" << setw(8) << valor_antigo << "&~0x" << setw(8) << valor_rs1 
+                        << "=0x" << setw(8) << novo 
+                        << endl;
+                        }
+
+                        else if (func3 == 0b101) { //csrrwi
+
+                            novo = uimm;
+                            *csr_ptr = novo;
+                            if (rd != 0) x[rd] = valor_antigo;
+
+                            // Ex: csrrwi t0, mstatus, 3
+                            cout << "0x" << setw(8) << pc << ":csrrwi " 
+                            << regs[rd] << "," << csr_name << ",0x" << hex << uimm
+                            << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
+                            << "," << csr_name << "=0x" << uimm << "=0x" << setw(8) << novo 
+                            << endl;
+                         }
+
+                        else if (func3 == 0b110) {  //csrrsi
+                            novo = valor_antigo | uimm;
+                            *csr_ptr = novo;
+                            if (rd != 0) x[rd] = valor_antigo;
+
+                            cout << "0x" << setw(8) << pc << ":csrrsi " 
+                            << regs[rd] << "," << csr_name << ",0x" << hex << uimm
+                            << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
+                            << "," << csr_name << "|=" << "0x" << uimm 
+                            << "=0x" << setw(8) << valor_antigo << "|0x" << setw(1) << uimm // setw(1) pra ficar justo
+                            << "=0x" << setw(8) << novo 
+                            << endl;
+                        }
+
+                        else if(func3 == 0b111){
+                            novo = valor_antigo & ~uimm;
+                            *csr_ptr = novo;
+                            if (rd != 0) x[rd] = valor_antigo;
+
+                            // Ex: csrrci t0, mstatus, 2
+                            cout << "0x" << setw(8) << pc << ":csrrci " 
+                            << regs[rd] << "," << csr_name << ",0x" << hex << uimm
+                            << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
+                            << "," << csr_name << "&=" << "~0x" << uimm 
+                            << "=0x" << setw(8) << valor_antigo << "&~0x" << setw(1) << uimm
+                            << "=0x" << setw(8) << novo 
+                            << endl;
+                        }
+                    }
+					// // Retrieving previous and next instructions
+					// uint32_t prev_index = (pc - 4) - offset;
+
+                    // const uint32_t previous = (uint32_t)mem[prev_index + 3] << 24 |(uint32_t)mem[prev_index + 2] << 16 |(uint32_t)mem[prev_index + 1] << 8  | (uint32_t)mem[prev_index + 0];
                     
-                    uint32_t next_index = (pc + 4) - offset;
+                    // uint32_t next_index = (pc + 4) - offset;
                                          
-					const uint32_t next = (uint32_t)mem[next_index + 3] << 24 |(uint32_t)mem[next_index + 2] << 16 |(uint32_t)mem[next_index + 1] << 8  | (uint32_t)mem[next_index + 0];
+					// const uint32_t next = (uint32_t)mem[next_index + 3] << 24 |(uint32_t)mem[next_index + 2] << 16 |(uint32_t)mem[next_index + 1] << 8  | (uint32_t)mem[next_index + 0];
 					
-            		if(previous == 0x01f01013 && next == 0x40705013) run = 0;
+            		// if(previous == 0x01f01013 && next == 0x40705013) run = 0;
 
-				 }
+				 
 				break;
             }
 
@@ -1070,6 +1237,7 @@ int main (int argc, char* argv[]) {
                 }
                 break;
             }
+
             default:
                 cout << "error: unknown instruction opcode at pc = 0x" << hex << setw(8) << pc << endl;
                 run = 0; 
