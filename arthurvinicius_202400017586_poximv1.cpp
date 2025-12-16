@@ -4,38 +4,61 @@ using namespace std;
 
     const uint32_t offset = 0x80000000;
     uint32_t pc = offset;
+    const uint32_t MEM_SIZE = 128 * 1024;
 
-    uint32_t csr_mstatus = 0; 
-    uint32_t csr_mie = 0;     
-    uint32_t csr_mtvec = 0;   
-    uint32_t csr_mepc = 0;    
-    uint32_t csr_mcause = 0;  
-    uint32_t csr_mtval = 0;   
-    uint32_t csr_mip = 0;
+    uint32_t mstatus = 0;
+    uint32_t mie = 0;     
+    uint32_t mtvec = 0;   
+    uint32_t mepc = 0;    
+    uint32_t mcause = 0;  
+    uint32_t mtval = 0;   
+    uint32_t mip = 0;
+    uint64_t mtime = 0;         
+    uint64_t mtimecmp = -1;
 
     #define CSR_ADDR_MSTATUS 0x300
-    #define CSR_ADDR_MIE     0x304
-    #define CSR_ADDR_MTVEC   0x305
-    #define CSR_ADDR_MEPC    0x341
-    #define CSR_ADDR_MCAUSE  0x342
-    #define CSR_ADDR_MTVAL   0x343
-    #define CSR_ADDR_MIP     0x344
+    #define CSR_ADDR_MIE 0x304
+    #define CSR_ADDR_MTVEC 0x305
+    #define CSR_ADDR_MEPC 0x341
+    #define CSR_ADDR_MCAUSE 0x342
+    #define CSR_ADDR_MTVAL 0x343
+    #define CSR_ADDR_MIP 0x344
 
-    #define CAUSE_FETCH_ACCESS 0x1  
-    #define CAUSE_ILLEGAL_INSTR 0x2  
-    #define CAUSE_LOAD_ACCESS 0x5  
-    #define CAUSE_STORE_ACCESS 0x7
-    #define CAUSE_ECALL 0xb
+    #define instruction_access_fault  0x1  
+    #define illegal_instruction 0x2  
+    #define load_access_fault 0x5  
+    #define store_access_fault 0x7
+    #define ecall_Mmode 0xb
 
     void trap(uint32_t cause, uint32_t value) {
-        csr_mcause = cause;
-        csr_mepc = pc;
-        csr_mtval = value;
 
-        uint32_t mie_bit = (csr_mstatus >> 3) & 1;
-        csr_mstatus = (csr_mstatus & ~0x88) | (mie_bit << 7);
-        pc = (csr_mtvec & ~0x3);
-    }
+        // 1. Atualiza os registradores de controle CSR
+        mcause = cause;
+        mepc = pc;       // Salva onde o programa parou
+        mtval = value;   // Salva o valor do erro (0 se for interrupção)
+
+        // 2. Manipulação do MSTATUS 
+        // Pega o estado atual do bit MIE (Bit 3)
+        uint32_t mie_bit = (mstatus >> 3) & 1;
+        
+        // Limpa os bits MPIE (7) e MIE (3), depois joga o valor antigo do MIE no MPIE
+        mstatus = (mstatus & ~0x88) | (mie_bit << 7);
+
+        // 3. Lógica de Desvio do PC (Direct vs Vectored)
+        uint32_t mode = mtvec & 0x1;       // Bit 0 define o modo (0=Direct, 1=Vectored)
+        uint32_t base = mtvec & ~0x3;      // Endereço base (zera os últimos 2 bits)
+
+        // Verifica se é uma Interrupção (Bit 31 ligado)
+        // Exceções (erros) SEMPRE usam modo Direct, mesmo que mtvec diga o contrário.
+        bool is_interrupt = (cause & 0x80000000);
+
+        if (mode == 1 && is_interrupt) {
+            uint32_t exception_code = cause & 0xFF; // Pega só o código (ignora o bit 31)
+            pc = base + (4 * exception_code);
+        } else {
+            pc = base;
+        }
+}
 
 int main (int argc, char* argv[]) {
     
@@ -43,7 +66,7 @@ int main (int argc, char* argv[]) {
 
      if(argc < 3) { // pra ver se a quantidade de parametro ta certinha 
     
-        cerr << "Parametros Incorretos" << endl;
+        cerr << "Parametros Incorretos." << endl;
         return 1;
      }
 
@@ -64,7 +87,15 @@ int main (int argc, char* argv[]) {
     cout.rdbuf(output.rdbuf());
 
     vector<uint8_t> mem(32 * 1024, 0); // olha a  memoria ai pessoal
+    FILE *infile = nullptr;
+    FILE *outfile = nullptr;
+    infile = fopen("qemu.terminal.in", "rb");   
+    outfile = fopen("qemu.terminal.out", "wb");
 
+    if (!infile || !outfile) {
+        cout << "Erro ao abrir arquivos qemu.terminal!" << endl;
+        return 1;
+    }
 
     array<string, 32> regs { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6" };
 
@@ -104,6 +135,53 @@ int main (int argc, char* argv[]) {
     bool run = true;
     
     while(run) {
+
+        bool pedidoSoftware = mip&8;
+        bool softwareHabilitado = mie&8;
+        bool chaveGeral = mstatus&8;
+
+        if(pedidoSoftware && softwareHabilitado && chaveGeral) {
+
+            cout << ">interrupt:software                   cause=0x80000003,epc=0x" 
+            << hex << setw(8) << setfill('0') << pc 
+            << ",tval=0x00000000" << endl;
+
+            trap(0x80000003, 0);
+        }
+
+        if(pc < offset || pc >= offset + MEM_SIZE || (pc % 4 != 0)) {
+            cout << hex << setfill('0');
+            cout << ">exception:instruction_fault   cause=0x" << setw(8) << instruction_access_fault
+            << ",epc=0x" << setw(8) << pc 
+            << ",tval=0x" << setw(8) << pc // O valor ruim é o próprio PC
+            << endl;
+            cout << dec;
+            trap(instruction_access_fault, pc);
+            continue;
+        } else {
+
+            bool pedidoTimer      = (mip & 128);   
+            bool timerHabilitado = (mie & 128);   
+
+        if (pedidoTimer && timerHabilitado && chaveGeral) {
+
+            // static int contador_debug = 0;
+        // if (contador_debug < 20) {
+        //     cout << "\n[LOOP DEBUG " << dec << contador_debug << "] ------------------" << endl;
+        //     cout << "PC Atual: 0x" << hex << pc << endl;
+        //     cout << "mtime:    " << dec << mtime << endl;
+        //     cout << "mtimecmp: " << dec << mtimecmp << endl;
+        //     cout << "Status:   mtime >= mtimecmp? " << (mtime >= mtimecmp ? "SIM (Toca!)" : "NAO") << endl;
+        //     cout << "--------------------------------" << endl;
+        //     contador_debug++;
+        // }
+            
+            cout << ">interrupt:timer                   cause=0x80000007,epc=0x" 
+            << hex << setw(8) << setfill('0') << pc 
+            << ",tval=0x00000000" << endl;
+            trap(0x80000007, 0); 
+            }
+        }
 
         uint32_t index_memoria = pc - offset;
         uint32_t instruction = (uint32_t)mem[index_memoria + 3] << 24 |
@@ -549,20 +627,21 @@ int main (int argc, char* argv[]) {
 				break;
             }
 
-            case 0b1110011:{
+            case 0b1110011:{ // system
 
                 uint32_t csr_addr = (instruction >> 20) & 0xFFF;
 
                 uint32_t *csr_ptr = nullptr;
                 switch(csr_addr) {
-                    case CSR_ADDR_MSTATUS: csr_ptr = &csr_mstatus; break;
-                    case CSR_ADDR_MIE:     csr_ptr = &csr_mie;     break;
-                    case CSR_ADDR_MTVEC:   csr_ptr = &csr_mtvec;   break;
-                    case CSR_ADDR_MEPC:    csr_ptr = &csr_mepc;    break;
-                    case CSR_ADDR_MCAUSE:  csr_ptr = &csr_mcause;  break;
-                    case CSR_ADDR_MTVAL:   csr_ptr = &csr_mtval;   break;
-                    case CSR_ADDR_MIP:     csr_ptr = &csr_mip;     break; 
+                    case CSR_ADDR_MSTATUS: csr_ptr = &mstatus; break;
+                    case CSR_ADDR_MIE:     csr_ptr = &mie;     break;
+                    case CSR_ADDR_MTVEC:   csr_ptr = &mtvec;   break;
+                    case CSR_ADDR_MEPC:    csr_ptr = &mepc;    break;
+                    case CSR_ADDR_MCAUSE:  csr_ptr = &mcause;  break;
+                    case CSR_ADDR_MTVAL:   csr_ptr = &mtval;   break;
+                    case CSR_ADDR_MIP:     csr_ptr = &mip;     break; 
                 }
+
 				// // ebreak (funct3 == 000 and imm == 1)
 				if(func3 == 0b000) {
 
@@ -570,7 +649,16 @@ int main (int argc, char* argv[]) {
                         cout << hex << setfill('0');
                         cout << "0x" << setw(8) << pc << ":ecall" << endl;
                         cout << dec;
-                        trap(CAUSE_ECALL, 0);
+
+                        cout << hex << setfill('0');
+                        cout << ">exception:environment_call                cause=0x" << setw(8) << ecall_Mmode
+                        << ",epc=0x" << setw(8) << pc 
+                        << ",tval=0x00000000" // ECALL não tem valor extra (tval é 0)
+                        << endl;
+                        cout << dec;
+
+                        trap(ecall_Mmode, 0);
+                        continue;
                     }
                     else if(csr_addr == 0x001) { //ebreak
  
@@ -582,9 +670,12 @@ int main (int argc, char* argv[]) {
 
                     else if(csr_addr == 0x302) { //mret
                         cout << hex << setfill('0');
-                        cout << "0x" << setw(8) << pc << ":mret" << endl;
+                        cout << "0x" << setw(8) << pc << ":mret                 pc=0x" 
+                        << setw(8) << mepc << endl;
                         cout << dec;
-                        pc = csr_mepc;
+                        pc = mepc;
+
+                        continue;
                         }
                     } 
                     // bloco de CSRs
@@ -611,7 +702,7 @@ int main (int argc, char* argv[]) {
                             *csr_ptr = novo;
                             if (rd != 0) x[rd] = valor_antigo;
 
-                            cout << "0x" << setw(8) << pc << ":csrrw  " 
+                            cout << "0x" << setw(8) << pc << ":csrrw    " 
                             << regs[rd] << "," << csr_name << "," << regs[rs1] 
                             << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
                             << "," << csr_name << "=" << regs[rs1] << "=0x" << setw(8) << novo 
@@ -623,7 +714,7 @@ int main (int argc, char* argv[]) {
                             *csr_ptr = novo;
                             if (rd != 0) x[rd] = valor_antigo;
 
-                            cout << "0x" << setw(8) << pc << ":csrrs  " 
+                            cout << "0x" << setw(8) << pc << ":csrrs    " 
                             << regs[rd] << "," << csr_name << "," << regs[rs1]
                             << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
                             << "," << csr_name << "|=" << regs[rs1] 
@@ -637,7 +728,7 @@ int main (int argc, char* argv[]) {
                         *csr_ptr = novo;
                         if (rd != 0) x[rd] = valor_antigo;
 
-                        cout << "0x" << setw(8) << pc << ":csrrc  " 
+                        cout << "0x" << setw(8) << pc << ":csrrc    " 
                         << regs[rd] << "," << csr_name << "," << regs[rs1]
                         << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
                         << "," << csr_name << "&=" << "~" << regs[rs1] 
@@ -653,7 +744,7 @@ int main (int argc, char* argv[]) {
                             if (rd != 0) x[rd] = valor_antigo;
 
                             // Ex: csrrwi t0, mstatus, 3
-                            cout << "0x" << setw(8) << pc << ":csrrwi " 
+                            cout << "0x" << setw(8) << pc << ":csrrwi   " 
                             << regs[rd] << "," << csr_name << ",0x" << hex << uimm
                             << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
                             << "," << csr_name << "=0x" << uimm << "=0x" << setw(8) << novo 
@@ -665,7 +756,7 @@ int main (int argc, char* argv[]) {
                             *csr_ptr = novo;
                             if (rd != 0) x[rd] = valor_antigo;
 
-                            cout << "0x" << setw(8) << pc << ":csrrsi " 
+                            cout << "0x" << setw(8) << pc << ":csrrsi   " 
                             << regs[rd] << "," << csr_name << ",0x" << hex << uimm
                             << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
                             << "," << csr_name << "|=" << "0x" << uimm 
@@ -680,7 +771,7 @@ int main (int argc, char* argv[]) {
                             if (rd != 0) x[rd] = valor_antigo;
 
                             // Ex: csrrci t0, mstatus, 2
-                            cout << "0x" << setw(8) << pc << ":csrrci " 
+                            cout << "0x" << setw(8) << pc << ":csrrci   " 
                             << regs[rd] << "," << csr_name << ",0x" << hex << uimm
                             << "     " << regs[rd] << "=" << csr_name << "=0x" << setw(8) << valor_antigo
                             << "," << csr_name << "&=" << "~0x" << uimm 
@@ -931,13 +1022,66 @@ int main (int argc, char* argv[]) {
 				break;
             }
 
-            case 0b0000011: { // LOAD - STORE
+            case 0b0000011: { // LOAD
 
                 int32_t imms = (imm & 0x800) ? (imm | 0xFFFFF000) : imm; // extensao de sinal 
+                uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                int32_t address = val1 + imms;
+
+                if (address == 0x10000000) {
+                    int c = fgetc(infile);
+                    if (c != EOF) {
+                        x[rd] = (uint32_t)c;
+                    } else {
+                        x[rd] = 0;
+                    }
+
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":lb       " 
+                    << regs[rd] << ",0x" << hex  << setfill('0') << setw(3) << imm
+                    << "(" << regs[rs1] << ")"
+                    << "     " << regs[rd] << "=mem[0x" <<  address
+                    << "]=0x" << setw(8) << setfill('0') << x[rd] << endl;
+                    cout << dec;
+
+                    break; // Sai do switch, não acessa a memória
+                }
+
+                else if (address == 0x10000005) {
+
+                int c = fgetc(infile); 
+                
+                if (c != EOF) {
+                    ungetc(c, infile); // Devolve o char pro arquivo
+                    x[rd] = 0x61;   // Bit 0 ligado (1) = tem arquivo aindua
+                } else {
+                    x[rd] = 0x60;   // Bit 0 desligado (0) = Arquivo acabou / Vazio
+                }
+
+                cout << hex << setfill('0');
+                cout << "0x" << setw(8) << pc << ":lb       " 
+                << regs[rd] << ",0x" << hex  << setfill('0') << setw(3) << imm
+                << "(" << regs[rs1] << ")"
+                << "     " << regs[rd] << "=mem[0x" <<  address
+                << "]=0x" << setw(8) << setfill('0') << x[rd] << endl;
+                cout << dec;
+                
+                break;
+
+                }
+
+                if(address < offset || address >= offset + MEM_SIZE) {
+                    cout << hex << setfill('0');
+                    cout << ">exception:load_fault          cause=0x" << setw(8) << load_access_fault
+                    << ",epc=0x" << setw(8) << pc 
+                    << ",tval=0x" << setw(8) << address // O valor ruim é o endereço calculado
+                    << endl;
+                    cout << dec;
+                    trap(load_access_fault, address);
+                    continue;
+                }
                 
                 if(func3 == 0b000) { // lb - load byte
-                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
-                    int32_t address = val1 + imms;
                     uint32_t index = address - offset;
                     int8_t byte = mem[index];
 
@@ -1045,17 +1189,109 @@ int main (int argc, char* argv[]) {
                 break;
             }
 
-            case 0b0100011 : { // TIPO S
+            case 0b0100011 : { // TIPO S - store
                 
                 int32_t imm_40 = rd;
                 int32_t imm_115 = func7;
                 int32_t immu = imm_115 << 5 | imm_40; // bit sem sinal
                 int32_t imms = (immu & 0x800) ? (immu | 0xFFFFF000) : immu; // extensao de sinal
 
+                uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
+                int32_t address = val1 + imms;
+
+                if (address == 0x10000000) {
+                uint8_t val = x[rs2] & 0xFF; 
+                fputc(val, outfile); 
+                fflush(outfile);     // Força a escrita imediata 
+
+                cout << hex << setfill('0');
+                cout << "0x" << setw(8) << pc << ":sb       " 
+                << regs[rs2] << ",0x" << hex << setfill('0') << setw(3) << immu 
+                << "(" << regs[rs1] << ")"
+                << "     " << "mem[0x" << setw(8) << address
+                << "]=0x" << setw(2) << (int)val << endl;
+                cout << dec;
+                break; 
+                }
+
+                if (address == 0x02000000) {
+                    uint32_t val = x[rs2]; 
+                    
+                    if (val > 0) {
+                        mip = mip | 8;  // LIGA o Bit 3 
+                    } else {
+                        mip = mip & (~8); // DESLIGA o Bit 3 (MSIP) 
+                    }
+
+                    cout << hex << setfill('0');
+                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
+                    << setw(3) << imms << "(" << regs[rs1] << ")";
+                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
+                    cout << dec; // Volta pra decimal
+                    break;
+                }
+
+                if (address == 0x2004000) {
+                    uint32_t val = x[rs2];
+                    mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | (uint64_t)val;
+                    cout << hex << setfill('0');
+                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
+                    << setw(3) << imms << "(" << regs[rs1] << ")";
+                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
+                    cout << dec;
+                    break;
+                }
+
+                if (address == 0x2004004) {
+                    uint32_t val = x[rs2];
+                    mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)val << 32);
+                    cout << hex << setfill('0');
+                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
+                    << setw(3) << imms << "(" << regs[rs1] << ")";
+                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
+                    cout << dec;
+                    break;
+                }
+
+                if (address == 0x200BFF8) {
+                    uint32_t val = x[rs2];
+                    mtime = (mtime & 0xFFFFFFFF00000000) | (uint64_t)val;
+                    cout << hex << setfill('0');
+                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
+                    << setw(3) << imms << "(" << regs[rs1] << ")";
+                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
+                    cout << dec;
+                    
+                    // cout << " Relógio ajustado (Low) para: " << dec << mtime << endl;
+                    break; 
+                }
+
+                if (address == 0x200BFFC) {
+                    uint32_t val = x[rs2];
+                    mtime = (mtime & 0x00000000FFFFFFFF) | ((uint64_t)val << 32);
+                    cout << hex << setfill('0');
+                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
+                    << setw(3) << imms << "(" << regs[rs1] << ")";
+                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
+                    cout << dec;
+                    
+                    //cout << "[CLINT] Relógio ajustado (High) para: " << dec << mtime << endl;
+                    break;
+                }
+
+                if(address < offset || address >= offset + MEM_SIZE) {
+                    cout << hex << setfill('0');
+                    cout << ">exception:store_fault         cause=0x" << setw(8) << store_access_fault 
+                    << ",epc=0x" << setw(8) << pc 
+                    << ",tval=0x" << setw(8) << address // O valor ruim é o endereço calculado
+                    << endl;
+                    cout << dec;
+                    trap(store_access_fault, address);
+                    continue;
+                }
+
                 if(func3 == 0b000) { // sb - store byte
-                    int32_t val1 = (rs1 == 0) ? 0 : x[rs1];
                     int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
-                    uint32_t address = val1 + imms;
                     mem[address - offset] = (uint8_t)val2;
 
                     cout << hex << setfill('0');
@@ -1069,9 +1305,7 @@ int main (int argc, char* argv[]) {
                 }
 
                 else if(func3 == 0b001) { // sh - store half
-                    int32_t val1 = (rs1 == 0) ? 0 : x[rs1];
                     int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
-                    uint32_t address = val1 + imms;
                     uint16_t metadinha = (uint16_t)val2;
 
                     mem[address - offset] = (uint8_t)(metadinha);
@@ -1088,9 +1322,7 @@ int main (int argc, char* argv[]) {
                 }
 
                 else if(func3 == 0b010) { // sw - store word
-                    int32_t val1 = (rs1 == 0) ? 0 : x[rs1];
                     int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
-                    uint32_t address = val1 + imms;
                     uint32_t todinha = (uint32_t)val2;
 
                     mem[address - offset] = (uint8_t)(todinha);
@@ -1239,14 +1471,24 @@ int main (int argc, char* argv[]) {
             }
 
             default:
-                cout << "error: unknown instruction opcode at pc = 0x" << hex << setw(8) << pc << endl;
-                run = 0; 
+                cout << hex << setfill('0');
+                cout << ">exception:illegal_instruction        cause=0x" << setw(8) << illegal_instruction
+                << ",epc=0x" << setw(8) << pc 
+                << ",tval=0x" << setw(8) << instruction // O valor ruim é a instrução ilegível
+                << endl;
+                trap(2, instruction);
+                cout << dec; 
+                continue;
         }
         pc += 4;
+
+        mtime++;
+        if (mtime >= mtimecmp) mip = mip | 128;
+        else mip = mip & (~128);
     }
     cout.rdbuf(coutbuffer);
     input.close();
     output.close();
 
     return 0;
-}
+    }
