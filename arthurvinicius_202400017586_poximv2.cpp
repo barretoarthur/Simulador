@@ -15,6 +15,12 @@ using namespace std;
     uint32_t mip = 0;
     uint64_t mtime = 0;         
     uint64_t mtimecmp = -1;
+    uint8_t uart_buffer = 0;      // O dado que chegou (Byte da UART)
+    bool uart_pendente = false;   // Indica que o PLIC recebeu um sinal do dispositivo
+
+    const uint32_t enderecoUart  = 0x10000000;
+    const uint32_t enderecoPlic = 0x0C200004; // Endereço de Claim/Complete 
+    const uint32_t IDuard       = 10;
 
     #define CSR_ADDR_MSTATUS 0x300
     #define CSR_ADDR_MIE 0x304
@@ -74,7 +80,7 @@ int main (int argc, char* argv[]) {
     ofstream output(argv[2]);
 
     if(!input.is_open()){
-        cerr << "Erro no Arquivo de Entrada" << endl;
+        cerr << "Erro no Arquivo de Entrada." << endl;
         return 1;
     }
 
@@ -139,6 +145,8 @@ int main (int argc, char* argv[]) {
         bool pedidoSoftware = mip&8;
         bool softwareHabilitado = mie&8;
         bool chaveGeral = mstatus&8;
+        bool pedidoTimer      = (mip & 128);   
+        bool timerHabilitado = (mie & 128);
 
         if(pedidoSoftware && softwareHabilitado && chaveGeral) {
 
@@ -147,23 +155,18 @@ int main (int argc, char* argv[]) {
             << ",tval=0x00000000" << endl;
 
             trap(0x80000003, 0);
+            continue;
         }
 
-        if(pc < offset || pc >= offset + MEM_SIZE || (pc % 4 != 0)) {
-            cout << hex << setfill('0');
-            cout << ">exception:instruction_fault   cause=0x" << setw(8) << instruction_access_fault
-            << ",epc=0x" << setw(8) << pc 
-            << ",tval=0x" << setw(8) << pc // O valor ruim é o próprio PC
-            << endl;
-            cout << dec;
-            trap(instruction_access_fault, pc);
+        else if((mip & 0x800) && (mie & 0x800) && chaveGeral) { // interrupt external
+            cout << ">interrupt:external                   cause=0x8000000b,epc=0x" 
+            << hex << setw(8) << setfill('0') << pc 
+            << ",tval=0x00000000" << endl;
+            trap(0x8000000b, 0);
             continue;
-        } else {
+        }
 
-            bool pedidoTimer      = (mip & 128);   
-            bool timerHabilitado = (mie & 128);   
-
-        if (pedidoTimer && timerHabilitado && chaveGeral) {
+        else if(pedidoTimer && timerHabilitado && chaveGeral) {
 
             // static int contador_debug = 0;
         // if (contador_debug < 20) {
@@ -180,8 +183,19 @@ int main (int argc, char* argv[]) {
             << hex << setw(8) << setfill('0') << pc 
             << ",tval=0x00000000" << endl;
             trap(0x80000007, 0); 
+            continue;
             }
-        }
+
+        if(pc < offset || pc >= offset + MEM_SIZE || (pc % 4 != 0)) {
+            cout << hex << setfill('0');
+            cout << ">exception:instruction_fault   cause=0x" << setw(8) << instruction_access_fault
+            << ",epc=0x" << setw(8) << pc 
+            << ",tval=0x" << setw(8) << pc // O valor ruim é o próprio PC
+            << endl;
+            cout << dec;
+            trap(instruction_access_fault, pc);
+            continue;
+        } 
 
         uint32_t index_memoria = pc - offset;
         uint32_t instruction = (uint32_t)mem[index_memoria + 3] << 24 |
@@ -1029,12 +1043,8 @@ int main (int argc, char* argv[]) {
                 int32_t address = val1 + imms;
 
                 if (address == 0x10000000) {
-                    int c = fgetc(infile);
-                    if (c != EOF) {
-                        x[rd] = (uint32_t)c;
-                    } else {
-                        x[rd] = 0;
-                    }
+                    x[rd] = (uint32_t)uart_buffer;
+                    uart_pendente = false;
 
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":lb       " 
@@ -1049,14 +1059,7 @@ int main (int argc, char* argv[]) {
 
                 else if (address == 0x10000005) {
 
-                int c = fgetc(infile); 
-                
-                if (c != EOF) {
-                    ungetc(c, infile); // Devolve o char pro arquivo
-                    x[rd] = 0x61;   // Bit 0 ligado (1) = tem arquivo aindua
-                } else {
-                    x[rd] = 0x60;   // Bit 0 desligado (0) = Arquivo acabou / Vazio
-                }
+                x[rd] = uart_pendente ? 0x61 : 0x60;
 
                 cout << hex << setfill('0');
                 cout << "0x" << setw(8) << pc << ":lb       " 
@@ -1201,9 +1204,11 @@ int main (int argc, char* argv[]) {
 
                 if (address == 0x10000000) {
                 uint8_t val = x[rs2] & 0xFF; 
+                
+        
                 fputc(val, outfile); 
                 fflush(outfile);     // Força a escrita imediata 
-
+                
                 cout << hex << setfill('0');
                 cout << "0x" << setw(8) << pc << ":sb       " 
                 << regs[rs2] << ",0x" << hex << setfill('0') << setw(3) << immu 
@@ -1482,6 +1487,19 @@ int main (int argc, char* argv[]) {
         }
         pc += 4;
 
+        if(!uart_pendente && infile != nullptr) {
+            int c = fgetc(infile);
+            if(c != EOF) {
+                uart_buffer = (uint8_t)c;
+                uart_pendente = true;
+            } else {
+            
+            }
+        }
+
+        if(uart_pendente) {
+            mip = mip | 0x800;
+        }
         mtime++;
         if (mtime >= mtimecmp) mip = mip | 128;
         else mip = mip & (~128);
