@@ -36,34 +36,25 @@ using namespace std;
     #define store_access_fault 0x7
     #define ecall_Mmode 0xb
 
-    void trap(uint32_t cause, uint32_t value) {
+void trap(uint32_t cause, uint32_t value) {
+    mcause = cause;
+    mepc = pc;
+    mtval = value;
 
-        // 1. Atualiza os registradores de controle CSR
-        mcause = cause;
-        mepc = pc;       // Salva onde o programa parou
-        mtval = value;   // Salva o valor do erro (0 se for interrupção)
+    
+    uint32_t mie_bit = (mstatus >> 3) & 1; // Salva o estado atual
+    mstatus = (mstatus & ~0x88) | (mie_bit << 7); // Desliga MIE(3) e salva em MPIE(7)
 
-        // 2. Manipulação do MSTATUS 
-        // Pega o estado atual do bit MIE (Bit 3)
-        uint32_t mie_bit = (mstatus >> 3) & 1;
-        
-        // Limpa os bits MPIE (7) e MIE (3), depois joga o valor antigo do MIE no MPIE
-        mstatus = (mstatus & ~0x88) | (mie_bit << 7);
+    // Lógica do vetor...
+    uint32_t mode = mtvec & 0x1;
+    uint32_t base = mtvec & ~0x3;
+    bool is_interrupt = (cause & 0x80000000);
 
-        // 3. Lógica de Desvio do PC (Direct vs Vectored)
-        uint32_t mode = mtvec & 0x1;       // Bit 0 define o modo (0=Direct, 1=Vectored)
-        uint32_t base = mtvec & ~0x3;      // Endereço base (zera os últimos 2 bits)
-
-        // Verifica se é uma Interrupção (Bit 31 ligado)
-        // Exceções (erros) SEMPRE usam modo Direct, mesmo que mtvec diga o contrário.
-        bool is_interrupt = (cause & 0x80000000);
-
-        if (mode == 1 && is_interrupt) {
-            uint32_t exception_code = cause & 0xFF; // Pega só o código (ignora o bit 31)
-            pc = base + (4 * exception_code);
-        } else {
-            pc = base;
-        }
+    if (mode == 1 && is_interrupt) {
+        pc = base + (4 * (cause & 0xFF));
+    } else {
+        pc = base;
+    }
 }
 
 int main (int argc, char* argv[]) {
@@ -98,8 +89,13 @@ int main (int argc, char* argv[]) {
     infile = fopen("qemu.terminal.in", "rb");   
     outfile = fopen("qemu.terminal.out", "wb");
 
-    if (!infile || !outfile) {
-        cout << "Erro ao abrir arquivos qemu.terminal!" << endl;
+    if (!infile) {
+        cout << "[ERRO CRITICO] Nao consegui abrir qemu.terminal.in!" << endl;
+       
+    } 
+
+    if (!outfile) {
+        cerr << "Erro: Nao foi possivel criar qemu.terminal.out" << endl;
         return 1;
     }
 
@@ -142,49 +138,64 @@ int main (int argc, char* argv[]) {
     
     while(run) {
 
+        if(!uart_pendente && infile != nullptr) {
+            int c = fgetc(infile);
+            if(c != EOF) {
+                uart_buffer = (uint8_t)c;
+                uart_pendente = true;
+            } 
+        }
+
+        if(uart_pendente) {
+            mip = mip | 0x800;
+        } else {
+            mip = mip & (~0x800); 
+        }
+        mtime++;
+        if (mtime >= mtimecmp) mip = mip | 0x80;
+        else mip = mip & (~0x80);
+
         bool pedidoSoftware = mip&8;
         bool softwareHabilitado = mie&8;
-        bool chaveGeral = mstatus&8;
+        bool chaveGeral = (mstatus >> 3) & 1;
         bool pedidoTimer      = (mip & 128);   
         bool timerHabilitado = (mie & 128);
 
-        if(pedidoSoftware && softwareHabilitado && chaveGeral) {
+        if ((mip & 0x800) && (mie & 0x800) && chaveGeral) { 
+            cout << ">interrupt:external                   cause=0x8000000b,epc=0x" 
+                 << hex << setw(8) << setfill('0') << pc 
+                 << ",tval=0x00000000" << endl;
+            
+            trap(0x8000000b, 0);
+
+            uart_pendente = false; 
+            mip &= ~0x800; 
+            
+            continue;
+        }
+
+        else if (pedidoSoftware && softwareHabilitado && chaveGeral) {
 
             cout << ">interrupt:software                   cause=0x80000003,epc=0x" 
-            << hex << setw(8) << setfill('0') << pc 
-            << ",tval=0x00000000" << endl;
+                 << hex << setw(8) << setfill('0') << pc 
+                 << ",tval=0x00000000" << endl;
 
             trap(0x80000003, 0);
+            
+            mip &= ~8; 
+
             continue;
         }
 
-        else if((mip & 0x800) && (mie & 0x800) && chaveGeral) { // interrupt external
-            cout << ">interrupt:external                   cause=0x8000000b,epc=0x" 
-            << hex << setw(8) << setfill('0') << pc 
-            << ",tval=0x00000000" << endl;
-            trap(0x8000000b, 0);
-            continue;
-        }
-
-        else if(pedidoTimer && timerHabilitado && chaveGeral) {
-
-            // static int contador_debug = 0;
-        // if (contador_debug < 20) {
-        //     cout << "\n[LOOP DEBUG " << dec << contador_debug << "] ------------------" << endl;
-        //     cout << "PC Atual: 0x" << hex << pc << endl;
-        //     cout << "mtime:    " << dec << mtime << endl;
-        //     cout << "mtimecmp: " << dec << mtimecmp << endl;
-        //     cout << "Status:   mtime >= mtimecmp? " << (mtime >= mtimecmp ? "SIM (Toca!)" : "NAO") << endl;
-        //     cout << "--------------------------------" << endl;
-        //     contador_debug++;
-        // }
+        else if (pedidoTimer && timerHabilitado && chaveGeral) {
             
             cout << ">interrupt:timer                   cause=0x80000007,epc=0x" 
-            << hex << setw(8) << setfill('0') << pc 
-            << ",tval=0x00000000" << endl;
+                 << hex << setw(8) << setfill('0') << pc 
+                 << ",tval=0x00000000" << endl;
+            
             trap(0x80000007, 0); 
             continue;
-            }
+        }
 
         if(pc < offset || pc >= offset + MEM_SIZE || (pc % 4 != 0)) {
             cout << hex << setfill('0');
@@ -687,7 +698,11 @@ int main (int argc, char* argv[]) {
                         cout << "0x" << setw(8) << pc << ":mret                 pc=0x" 
                         << setw(8) << mepc << endl;
                         cout << dec;
+                        
                         pc = mepc;
+                        uint32_t mpie = (mstatus >> 7) & 1;
+                        mstatus = (mstatus & ~0x88) | (mpie << 3); // Restaura MIE
+                        
 
                         continue;
                         }
@@ -1037,315 +1052,211 @@ int main (int argc, char* argv[]) {
             }
 
             case 0b0000011: { // LOAD
-
-                int32_t imms = (imm & 0x800) ? (imm | 0xFFFFF000) : imm; // extensao de sinal 
+                int32_t imms = (imm & 0x800) ? (imm | 0xFFFFF000) : imm;
                 uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
-                int32_t address = val1 + imms;
+                uint32_t address = val1 + imms;
 
-                if (address == 0x10000000) {
-                    x[rd] = (uint32_t)uart_buffer;
-                    uart_pendente = false;
+                // Variáveis para o print ficar correto (lb, lh, lw...)
+                string instr_name = "lb      "; // Padrão
+                if (func3 == 0b000) instr_name = "lb      ";
+                else if (func3 == 0b001) instr_name = "lh      ";
+                else if (func3 == 0b010) instr_name = "lw      ";
+                else if (func3 == 0b100) instr_name = "lbu     ";
+                else if (func3 == 0b101) instr_name = "lhu     ";
 
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":lb       " 
-                    << regs[rd] << ",0x" << hex  << setfill('0') << setw(3) << imm
-                    << "(" << regs[rs1] << ")"
-                    << "     " << regs[rd] << "=mem[0x" <<  address
-                    << "]=0x" << setw(8) << setfill('0') << x[rd] << endl;
-                    cout << dec;
-
-                    break; // Sai do switch, não acessa a memória
-                }
-
-                else if (address == 0x10000005) {
-
-                x[rd] = uart_pendente ? 0x61 : 0x60;
-
-                cout << hex << setfill('0');
-                cout << "0x" << setw(8) << pc << ":lb       " 
-                << regs[rd] << ",0x" << hex  << setfill('0') << setw(3) << imm
-                << "(" << regs[rs1] << ")"
-                << "     " << regs[rd] << "=mem[0x" <<  address
-                << "]=0x" << setw(8) << setfill('0') << x[rd] << endl;
-                cout << dec;
+                bool eh_periferico = false;
                 
-                break;
-
+                // --- UART (0x10000000 - 0x100000FF) ---
+                if (address >= 0x10000000 && address < 0x10000100) {
+                    eh_periferico = true;
+                    if (address == 0x10000000) { // DADOS
+                        x[rd] = (uint32_t)uart_buffer;
+                        uart_pendente = false; 
+                    }
+                    else if (address == 0x10000005) { // STATUS
+                        x[rd] = uart_pendente ? 0x61 : 0x60;
+                    } 
+                    else { // CONFIG (Ex: 0x10000002) - Retorna 0
+                        x[rd] = 0; 
+                    }
+                }
+                // --- PLIC (0x0C000000 - 0x10000000) ---
+                else if (address >= 0x0C000000 && address < 0x10000000) {
+                    eh_periferico = true;
+                    x[rd] = 0; // Leitura de PLIC retorna 0 por padrão
+                }
+                // --- CLINT (0x02000000 - 0x0200C000) ---
+                else if (address >= 0x02000000 && address < 0x0200C000) {
+                    eh_periferico = true;
+                    if (address == 0x02000000)      x[rd] = (mip >> 3) & 1; 
+                    else if (address == 0x02004000) x[rd] = (uint32_t)mtimecmp; 
+                    else if (address == 0x02004004) x[rd] = (uint32_t)(mtimecmp >> 32); 
+                    else if (address == 0x0200BFF8) x[rd] = (uint32_t)mtime; 
+                    else if (address == 0x0200BFFC) x[rd] = (uint32_t)(mtime >> 32); 
+                    else x[rd] = 0;
                 }
 
+                // Se foi um periférico, imprime e sai AQUI.
+                if (eh_periferico) {
+                    cout << hex << setfill('0');
+                    cout << "0x" << setw(8) << pc << ":" << instr_name 
+                         << regs[rd] << ",0x" << setw(3) << imm << "(" << regs[rs1] << ")"
+                         << "     " << regs[rd] << "=mem[0x" << setw(8) << address // <--- O FIX DOS 7 DÍGITOS TÁ AQUI
+                         << "]=0x" << setw(8) << x[rd] << endl;
+                    cout << dec;
+                    break; // Sai do switch
+                }
+
+                // ==========================================================
+                // 2. MEMÓRIA RAM (Só chega aqui se não for periférico)
+                // ==========================================================
                 if(address < offset || address >= offset + MEM_SIZE) {
                     cout << hex << setfill('0');
                     cout << ">exception:load_fault          cause=0x" << setw(8) << load_access_fault
-                    << ",epc=0x" << setw(8) << pc 
-                    << ",tval=0x" << setw(8) << address // O valor ruim é o endereço calculado
-                    << endl;
+                    << ",epc=0x" << setw(8) << pc << ",tval=0x" << setw(8) << address << endl;
                     cout << dec;
                     trap(load_access_fault, address);
                     continue;
                 }
-                
-                if(func3 == 0b000) { // lb - load byte
-                    uint32_t index = address - offset;
-                    int8_t byte = mem[index];
 
-                    int32_t resultado = (byte & 0x80) ? (byte | 0xFFFFFF00) : byte;
-                    
-                    if(rd != 0) {
-                        x[rd] = resultado;
-                    }
+                // Leitura Real da RAM
+                uint32_t final_val = 0;
+                if(func3 == 0b000) { // lb
+                    int8_t byte = mem[address - offset];
+                    final_val = (byte & 0x80) ? (byte | 0xFFFFFF00) : byte;
+                } 
+                else if(func3 == 0b100) { // lbu
+                    final_val = (uint8_t)mem[address - offset];
+                } 
+                else if(func3 == 0b001) { // lh
+                    uint16_t half = (uint16_t)mem[address - offset + 1] << 8 | (uint16_t)mem[address - offset];
+                    final_val = (half & 0x8000) ? (half | 0xFFFF0000) : half;
+                }
+                else if(func3 == 0b101) { // lhu
+                     final_val = (uint16_t)mem[address - offset + 1] << 8 | (uint16_t)mem[address - offset];
+                }
+                else if(func3 == 0b010) { // lw
+                    final_val = (uint32_t)mem[address - offset + 3] << 24 | (uint32_t)mem[address - offset + 2] << 16 | (uint32_t)mem[address - offset + 1] << 8  | (uint32_t)mem[address - offset];
+                }
 
+                if (rd != 0) x[rd] = final_val;
+
+                // Print Padrão RAM
                 cout << hex << setfill('0');
-                cout << "0x" << setw(8) << pc << ":lb       " 
-                << regs[rd] << ",0x" << hex  << setfill('0') << setw(3) << imm
-                << "(" << regs[rs1] << ")"
-                << "     " << regs[rd] << "=mem[0x" <<  address
-                << "]=0x" << setw(8) << resultado << endl;
+                cout << "0x" << setw(8) << pc << ":" << instr_name 
+                     << regs[rd] << ",0x" << setw(3) << imm << "(" << regs[rs1] << ")"
+                     << "     " << regs[rd] << "=mem[0x" << setw(8) << address // <--- O FIX DOS 7 DÍGITOS
+                     << "]=0x" << setw(8) << final_val << endl;
                 cout << dec;
-
-                } 
-
-                else if(func3 == 0b100) { // lbu - load byte unsigned
-                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
-                    uint32_t address = val1 + imms;
-                    uint32_t index = address - offset;
-                    uint8_t byte = mem[index];
-                    
-                    if(rd != 0) {
-                        x[rd] = byte;
-                    }
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":lbu      " 
-                    << regs[rd] << ",0x" << hex << setfill('0') << setw(3) << imm 
-                    << "(" << regs[rs1] << ")"
-                    << "     " << regs[rd] << "=mem[0x" <<  address
-                    << "]=0x" << setw(8) << static_cast<int>(byte) << endl;
-                    cout << dec;
-
-                } 
-
-                else if(func3 == 0b001) { // lh - load half
-                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
-                    uint32_t address = val1 + imms;
-    
-                    uint16_t metadinha = (uint16_t)mem[address - offset + 1] << 8 | 
-                    (uint16_t)mem[address - offset];
-                    
-                    int32_t bytes = (metadinha & 0x8000) ? (metadinha | 0xFFFF0000) : metadinha;
-
-                    if(rd != 0) {
-                        x[rd] = bytes;
-                    }
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":lh       " << regs[rd] 
-                    << ",0x" << hex << setfill('0') << setw(3) << imm
-                    << "(" << regs[rs1] << ")"
-                    << "     " << regs[rd] << "=mem[0x" <<  address
-                    << "]=0x" << setw(8) << bytes << endl;
-                    cout << dec;
-
-                }
-
-                else if(func3 == 0b101) { // lhu - load half unsigned
-                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
-                    uint32_t address = val1 + imms;
-    
-                    uint16_t metadinha = (uint16_t)mem[address - offset + 1] << 8 | 
-                    (uint16_t)mem[address - offset];
-                    
-                    if(rd != 0) {
-                        x[rd] = metadinha;
-                    }
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":lhu      " << regs[rd] 
-                    << ",0x" << hex << setw(3) << imm
-                    << "(" << regs[rs1] << ")"
-                    << "     " << regs[rd] << "=mem[0x" <<  address
-                    << "]=0x" << setw(8) << static_cast<int>(metadinha) << endl;
-                    cout << dec;
-
-                }
-
-                else if(func3 == 0b010) { // lw - load word
-                    uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
-                    uint32_t address = val1 + imms;
-                    
-                    uint32_t todinha = (uint32_t)mem[address - offset + 3] << 24 | 
-                    (uint32_t)mem[address - offset + 2] << 16 | (uint32_t)mem[address - offset + 1] << 8  | (uint32_t)mem[address - offset];
-                    
-                    if(rd != 0) {
-                        x[rd] = todinha;
-                    }
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":lw       " << regs[rd] 
-                    << ",0x" << hex << setw(3) << imm 
-                    << "(" << regs[rs1] << ")"
-                    << "     " << regs[rd] << "=mem[0x" <<  address
-                    << "]=0x" << setw(8) << todinha << endl;
-                    cout << dec;
-
-                }
 
                 break;
             }
 
-            case 0b0100011 : { // TIPO S - store
-                
+            case 0b0100011 : { // STORE
                 int32_t imm_40 = rd;
                 int32_t imm_115 = func7;
-                int32_t immu = imm_115 << 5 | imm_40; // bit sem sinal
-                int32_t imms = (immu & 0x800) ? (immu | 0xFFFFF000) : immu; // extensao de sinal
-
+                int32_t immu = imm_115 << 5 | imm_40; 
+                int32_t imms = (immu & 0x800) ? (immu | 0xFFFFF000) : immu;
                 uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
                 int32_t address = val1 + imms;
+                uint32_t val_to_write = (rs2 == 0) ? 0 : x[rs2];
 
-                if (address == 0x10000000) {
-                uint8_t val = x[rs2] & 0xFF; 
-                
-        
-                fputc(val, outfile); 
-                fflush(outfile);     // Força a escrita imediata 
-                
-                cout << hex << setfill('0');
-                cout << "0x" << setw(8) << pc << ":sb       " 
-                << regs[rs2] << ",0x" << hex << setfill('0') << setw(3) << immu 
-                << "(" << regs[rs1] << ")"
-                << "     " << "mem[0x" << setw(8) << address
-                << "]=0x" << setw(2) << (int)val << endl;
-                cout << dec;
-                break; 
+                string instr_name = "sw      ";
+                int width = 8; // Padrão SW
+                uint32_t print_val = val_to_write;
+
+                if (func3 == 0b000) {      // sb
+                    instr_name = "sb      ";
+                    width = 2;             // Usa 2 dígitos!
+                    print_val &= 0xFF;     
+                } 
+                else if (func3 == 0b001) { // sh
+                    instr_name = "sh      ";
+                    width = 4;             // Usa 4 dígitos!
+                    print_val &= 0xFFFF;
                 }
 
-                if (address == 0x02000000) {
-                    uint32_t val = x[rs2]; 
-                    
-                    if (val > 0) {
-                        mip = mip | 8;  // LIGA o Bit 3 
-                    } else {
-                        mip = mip & (~8); // DESLIGA o Bit 3 (MSIP) 
+                // ==========================================================
+                // 1. ZONA DE PERIFÉRICOS
+                // ==========================================================
+                bool eh_periferico = false;
+
+                // --- UART ---
+                if (address >= 0x10000000 && address < 0x10000100) {
+                    eh_periferico = true;
+                    if (address == 0x10000000) { // DADOS
+                         if (outfile) { fputc((uint8_t)val_to_write, outfile); fflush(outfile); }
+                         uart_pendente = true; // Dispara interrupção
                     }
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
-                    << setw(3) << imms << "(" << regs[rs1] << ")";
-                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
-                    cout << dec; // Volta pra decimal
-                    break;
+                    // Outros endereços (0x10000001) são ignorados mas printados abaixo
+                }
+                // --- PLIC ---
+                else if (address >= 0x0C000000 && address < 0x10000000) {
+                    eh_periferico = true;
+                    if (address == 0x0C200004 && val_to_write == 10) {
+                        uart_pendente = false;
+                        mip &= ~0x800;
+                    }
+                }
+                // --- CLINT ---
+                else if (address >= 0x02000000 && address < 0x0200C000) {
+                     eh_periferico = true;
+                     if (address == 0x02000000) { if(val_to_write > 0) mip|=8; else mip&=~8; }
+                     else if (address == 0x02004000) mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | (uint64_t)val_to_write;
+                     else if (address == 0x02004004) mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)val_to_write << 32);
+                     else if (address == 0x0200BFF8) mtime = (mtime & 0xFFFFFFFF00000000) | (uint64_t)val_to_write;
+                     else if (address == 0x0200BFFC) mtime = (mtime & 0x00000000FFFFFFFF) | ((uint64_t)val_to_write << 32);
                 }
 
-                if (address == 0x2004000) {
-                    uint32_t val = x[rs2];
-                    mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | (uint64_t)val;
+                if (eh_periferico) {
                     cout << hex << setfill('0');
-                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
-                    << setw(3) << imms << "(" << regs[rs1] << ")";
-                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
+                    cout << "0x" << setw(8) << pc << ":" << instr_name 
+                         << regs[rs2] << ",0x" << setw(3) << immu << "(" << regs[rs1] << ")"
+                         << "     " << "mem[0x" << setw(8) << address // <--- O FIX DOS 7 DÍGITOS
+                         << "]=0x" << setw(width) << print_val << endl; // Valor ajustado
                     cout << dec;
                     break;
                 }
 
-                if (address == 0x2004004) {
-                    uint32_t val = x[rs2];
-                    mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)val << 32);
-                    cout << hex << setfill('0');
-                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
-                    << setw(3) << imms << "(" << regs[rs1] << ")";
-                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
-                    cout << dec;
-                    break;
-                }
-
-                if (address == 0x200BFF8) {
-                    uint32_t val = x[rs2];
-                    mtime = (mtime & 0xFFFFFFFF00000000) | (uint64_t)val;
-                    cout << hex << setfill('0');
-                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
-                    << setw(3) << imms << "(" << regs[rs1] << ")";
-                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
-                    cout << dec;
-                    
-                    // cout << " Relógio ajustado (Low) para: " << dec << mtime << endl;
-                    break; 
-                }
-
-                if (address == 0x200BFFC) {
-                    uint32_t val = x[rs2];
-                    mtime = (mtime & 0x00000000FFFFFFFF) | ((uint64_t)val << 32);
-                    cout << hex << setfill('0');
-                    cout << "0x" << pc << ":sw       " << regs[rs2] << ",0x" 
-                    << setw(3) << imms << "(" << regs[rs1] << ")";
-                    cout << "\tmem[0x" << hex << setw(8) << address << "]=0x" <<  setw(8) << val << endl;
-                    cout << dec;
-                    
-                    //cout << "[CLINT] Relógio ajustado (High) para: " << dec << mtime << endl;
-                    break;
-                }
-
+                // ==========================================================
+                // 2. MEMÓRIA RAM
+                // ==========================================================
                 if(address < offset || address >= offset + MEM_SIZE) {
-                    cout << hex << setfill('0');
-                    cout << ">exception:store_fault         cause=0x" << setw(8) << store_access_fault 
-                    << ",epc=0x" << setw(8) << pc 
-                    << ",tval=0x" << setw(8) << address // O valor ruim é o endereço calculado
-                    << endl;
-                    cout << dec;
-                    trap(store_access_fault, address);
-                    continue;
+                     // ... trap store_fault ...
+                     cout << ">exception:store_fault          cause=0x" << setw(8) << store_access_fault 
+                          << ",epc=0x" << setw(8) << pc 
+                          << ",tval=0x" << setw(8) << address 
+                          << endl;
+                     
+                     cout << dec;
+
+                     trap(store_access_fault, address);
+                     continue;
                 }
 
-                if(func3 == 0b000) { // sb - store byte
-                    int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
-                    mem[address - offset] = (uint8_t)val2;
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":sb       " 
-                    << regs[rs2] << ",0x" << hex << setfill('0') << setw(3) << immu 
-                    << "(" << regs[rs1] << ")"
-                    << "     " << "mem[0x" << setw(8) << address
-                    << "]=0x" << setw(2) << (val2 & 0xFF) << endl;
-                    cout << dec;
-                    
+                // Escrita Real na RAM
+                if(func3 == 0b000) { // sb
+                    mem[address - offset] = (uint8_t)val_to_write;
+                }
+                else if(func3 == 0b001) { // sh
+                    mem[address - offset] = (uint8_t)val_to_write;
+                    mem[address - offset+1] = (uint8_t)(val_to_write >> 8);
+                }
+                else if(func3 == 0b010) { // sw
+                    mem[address - offset] = (uint8_t)val_to_write;
+                    mem[address - offset+1] = (uint8_t)(val_to_write >> 8);
+                    mem[address - offset+2] = (uint8_t)(val_to_write >> 16);
+                    mem[address - offset+3] = (uint8_t)(val_to_write >> 24);
                 }
 
-                else if(func3 == 0b001) { // sh - store half
-                    int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
-                    uint16_t metadinha = (uint16_t)val2;
+                cout << hex << setfill('0');
+                cout << "0x" << setw(8) << pc << ":" << instr_name 
+                     << regs[rs2] << ",0x" << setw(3) << immu << "(" << regs[rs1] << ")"
+                     << "     " << "mem[0x" << setw(8) << address
+                     << "]=0x" << setw(width) << print_val << endl;
+                cout << dec;
 
-                    mem[address - offset] = (uint8_t)(metadinha);
-                    mem[address - offset+1] = (uint8_t)(metadinha >> 8);
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":sh       " 
-                    << regs[rs2] << ",0x" << hex << setfill('0') << setw(3) << immu 
-                    << "(" << regs[rs1] << ")"
-                    << "     " << "mem[0x" << setw(8) << address
-                    << "]=0x" << setw(4) << (val2 & 0xFFFF) << endl;
-                    cout << dec;
-                    
-                }
-
-                else if(func3 == 0b010) { // sw - store word
-                    int32_t val2 = (rs2 == 0) ? 0 : x[rs2];
-                    uint32_t todinha = (uint32_t)val2;
-
-                    mem[address - offset] = (uint8_t)(todinha);
-                    mem[address - offset+1] = (uint8_t)(todinha >> 8);
-                    mem[address - offset+2] = (uint8_t)(todinha >> 16);
-                    mem[address - offset+3] = (uint8_t)(todinha >> 24);
-
-                    cout << hex << setfill('0');
-                    cout << "0x" << setw(8) << pc << ":sw       " 
-                    << regs[rs2] << ",0x" << hex << setw(3) << immu 
-                    << "(" << regs[rs1] << ")"
-                    << "     " << "mem[0x" << setw(8) << address
-                    << "]=0x" << setw(8) << val2 << endl;
-                    cout << dec;
-                    
-                }
                 break;
-
             }
 
             case 0b1100011: { // tipo B
@@ -1487,22 +1398,7 @@ int main (int argc, char* argv[]) {
         }
         pc += 4;
 
-        if(!uart_pendente && infile != nullptr) {
-            int c = fgetc(infile);
-            if(c != EOF) {
-                uart_buffer = (uint8_t)c;
-                uart_pendente = true;
-            } else {
-            
-            }
-        }
-
-        if(uart_pendente) {
-            mip = mip | 0x800;
-        }
-        mtime++;
-        if (mtime >= mtimecmp) mip = mip | 128;
-        else mip = mip & (~128);
+        
     }
     cout.rdbuf(coutbuffer);
     input.close();
