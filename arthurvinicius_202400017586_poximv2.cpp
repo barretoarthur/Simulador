@@ -6,7 +6,7 @@ using namespace std;
     uint32_t pc = offset;
     const uint32_t MEM_SIZE = 128 * 1024;
 
-    uint32_t mstatus = 0;
+    uint32_t mstatus = 0x80;
     uint32_t mie = 0;     
     uint32_t mtvec = 0;   
     uint32_t mepc = 0;    
@@ -74,6 +74,7 @@ int main (int argc, char* argv[]) {
         cerr << "Erro no Arquivo de Entrada." << endl;
         return 1;
     }
+    
 
     if(!output.is_open()){
         cerr << "Erro no Arquivo de Saída." << endl;
@@ -88,11 +89,6 @@ int main (int argc, char* argv[]) {
     FILE *outfile = nullptr;
     infile = fopen("qemu.terminal.in", "rb");   
     outfile = fopen("qemu.terminal.out", "wb");
-
-    if (!infile) {
-        cout << "[ERRO CRITICO] Nao consegui abrir qemu.terminal.in!" << endl;
-       
-    } 
 
     if (!outfile) {
         cerr << "Erro: Nao foi possivel criar qemu.terminal.out" << endl;
@@ -118,12 +114,11 @@ int main (int argc, char* argv[]) {
         }
 
         stringstream ss(linha); 
-        uint32_t byte_val; // Variável para guardar CADA byte (6F, 00, 0A, etc.)
+        uint32_t byte_val; 
 
         
         while (ss >> hex >> byte_val) {
             
-            // Armazena o byte lido diretamente na memória
             if (index_memoria < mem.size()) {
                 mem[index_memoria] = static_cast<uint8_t>(byte_val);
                 index_memoria++; 
@@ -201,7 +196,7 @@ int main (int argc, char* argv[]) {
             cout << hex << setfill('0');
             cout << ">exception:instruction_fault   cause=0x" << setw(8) << instruction_access_fault
             << ",epc=0x" << setw(8) << pc 
-            << ",tval=0x" << setw(8) << pc // O valor ruim é o próprio PC
+            << ",tval=0x00000000" // O valor ruim é o próprio PC
             << endl;
             cout << dec;
             trap(instruction_access_fault, pc);
@@ -866,6 +861,8 @@ int main (int argc, char* argv[]) {
                     << "+0x" << setw(8) << imms
                     << "=0x" << setw(8) << resultado << endl;
                     cout << dec;
+
+                    
                 }
 
                 else if(func3 == 0b111) { // andi 
@@ -1055,6 +1052,7 @@ int main (int argc, char* argv[]) {
                 int32_t imms = (imm & 0x800) ? (imm | 0xFFFFF000) : imm;
                 uint32_t val1 = (rs1 == 0) ? 0 : x[rs1];
                 uint32_t address = val1 + imms;
+                uint32_t rd  = (instruction >> 7) & 0x1F;
 
                 // Variáveis para o print ficar correto (lb, lh, lw...)
                 string instr_name = "lb      "; // Padrão
@@ -1066,26 +1064,27 @@ int main (int argc, char* argv[]) {
 
                 bool eh_periferico = false;
                 
-                // --- UART (0x10000000 - 0x100000FF) ---
+                // UART (0x10000000 - 0x100000FF)
                 if (address >= 0x10000000 && address < 0x10000100) {
                     eh_periferico = true;
+                    
                     if (address == 0x10000000) { // DADOS
                         x[rd] = (uint32_t)uart_buffer;
                         uart_pendente = false; 
-                    }
+                    } 
                     else if (address == 0x10000005) { // STATUS
                         x[rd] = uart_pendente ? 0x61 : 0x60;
                     } 
-                    else { // CONFIG (Ex: 0x10000002) - Retorna 0
+                    else { 
                         x[rd] = 0; 
                     }
                 }
-                // --- PLIC (0x0C000000 - 0x10000000) ---
+                //  PLIC (0x0C000000 - 0x10000000) 
                 else if (address >= 0x0C000000 && address < 0x10000000) {
                     eh_periferico = true;
                     x[rd] = 0; // Leitura de PLIC retorna 0 por padrão
                 }
-                // --- CLINT (0x02000000 - 0x0200C000) ---
+                //  CLINT (0x02000000 - 0x0200C000)
                 else if (address >= 0x02000000 && address < 0x0200C000) {
                     eh_periferico = true;
                     if (address == 0x02000000)      x[rd] = (mip >> 3) & 1; 
@@ -1096,20 +1095,16 @@ int main (int argc, char* argv[]) {
                     else x[rd] = 0;
                 }
 
-                // Se foi um periférico, imprime e sai AQUI.
                 if (eh_periferico) {
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":" << instr_name 
                          << regs[rd] << ",0x" << setw(3) << imm << "(" << regs[rs1] << ")"
-                         << "     " << regs[rd] << "=mem[0x" << setw(8) << address // <--- O FIX DOS 7 DÍGITOS TÁ AQUI
+                         << "     " << regs[rd] << "=mem[0x" << setw(8) << address 
                          << "]=0x" << setw(8) << x[rd] << endl;
                     cout << dec;
                     break; // Sai do switch
                 }
 
-                // ==========================================================
-                // 2. MEMÓRIA RAM (Só chega aqui se não for periférico)
-                // ==========================================================
                 if(address < offset || address >= offset + MEM_SIZE) {
                     cout << hex << setfill('0');
                     cout << ">exception:load_fault          cause=0x" << setw(8) << load_access_fault
@@ -1145,9 +1140,10 @@ int main (int argc, char* argv[]) {
                 cout << hex << setfill('0');
                 cout << "0x" << setw(8) << pc << ":" << instr_name 
                      << regs[rd] << ",0x" << setw(3) << imm << "(" << regs[rs1] << ")"
-                     << "     " << regs[rd] << "=mem[0x" << setw(8) << address // <--- O FIX DOS 7 DÍGITOS
+                     << "     " << regs[rd] << "=mem[0x" << setw(8) << address 
                      << "]=0x" << setw(8) << final_val << endl;
                 cout << dec;
+                
 
                 break;
             }
@@ -1171,7 +1167,7 @@ int main (int argc, char* argv[]) {
                     print_val &= 0xFF;     
                 } 
                 else if (func3 == 0b001) { // sh
-                    instr_name = "sh      ";
+                    instr_name = "sh       ";
                     width = 4;             // Usa 4 dígitos!
                     print_val &= 0xFFFF;
                 }
@@ -1218,17 +1214,15 @@ int main (int argc, char* argv[]) {
                     break;
                 }
 
-                // ==========================================================
-                // 2. MEMÓRIA RAM
-                // ==========================================================
                 if(address < offset || address >= offset + MEM_SIZE) {
                      // ... trap store_fault ...
-                     cout << ">exception:store_fault          cause=0x" << setw(8) << store_access_fault 
-                          << ",epc=0x" << setw(8) << pc 
-                          << ",tval=0x" << setw(8) << address 
-                          << endl;
+                    cout << ">exception:store_fault          cause=0x" 
+                    << hex << setfill('0') << setw(8) << 0x7  // O código da exceção é 7
+                    << ",epc=0x" << setw(8) << pc 
+                    << ",tval=0x" << setw(8) << address 
+                    << endl;
                      
-                     cout << dec;
+                    cout << dec;
 
                      trap(store_access_fault, address);
                      continue;
@@ -1296,7 +1290,6 @@ int main (int argc, char* argv[]) {
                     bool condicao = (val1 != val2);
                     uint32_t enderecoPulo = (condicao) ? (pc + imms) : (pc + 4);
 
-                    
                     cout << hex << setfill('0');
                     cout << "0x" << setw(8) << pc << ":bne      " 
                     << regs[rs1] << "," << regs[rs2] << ",0x" << hex << setfill('0')<< setw(3) 
